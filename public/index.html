@@ -9,160 +9,180 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        * {
-            box-sizing: border-box;
-        }
-
         html,
         body {
-            margin: 0;
-            padding: 0;
             width: 100%;
             height: 100%;
+            margin: 0;
+            padding: 0;
             background: #000;
             overflow: hidden;
         }
 
-        #player {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        #message {
+        video {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            object-fit: contain;
+        }
+
+        #status {
             position: fixed;
             inset: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding: 20px;
             color: #fff;
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 30px;
             background: #000;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            text-align: center;
+            z-index: 10;
         }
     </style>
 </head>
 
 <body>
 
-<div id="message">
-    Video yükleniyor...
-</div>
+<div id="status">Video hazırlanıyor...</div>
 
 <video
-    id="player"
+    id="video"
     controls
     playsinline
-    preload="metadata"
-></video>
+    preload="metadata">
+</video>
 
 <script>
 
-const video = document.getElementById("player");
-const message = document.getElementById("message");
+const video = document.getElementById("video");
+const status = document.getElementById("status");
 
 const params = new URLSearchParams(window.location.search);
-const url = params.get("url");
+const source = params.get("url");
 
-function showMessage(text) {
-    message.textContent = text;
-    message.style.display = "flex";
+let hls = null;
+
+function showStatus(text) {
+    status.textContent = text;
+    status.style.display = "flex";
 }
 
-function hideMessage() {
-    message.style.display = "none";
+function hideStatus() {
+    status.style.display = "none";
 }
 
-function playHLS(source) {
+function isHLS(url) {
+    return /\.m3u8($|[?#])/i.test(url);
+}
+
+function playHLS(url) {
 
     if (Hls.isSupported()) {
 
-        const hls = new Hls({
+        hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true
+            lowLatencyMode: false
         });
 
-        hls.loadSource(source);
+        hls.loadSource(url);
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            hideMessage();
+            hideStatus();
         });
 
         hls.on(Hls.Events.ERROR, function (event, data) {
 
+            console.error("HLS error:", data);
+
             if (data.fatal) {
-                showMessage(
-                    "Video kaynağı oynatılamıyor."
+
+                showStatus(
+                    "HLS video yüklenemedi. Kaynak CORS erişimine izin veriyor mu kontrol edin."
                 );
+
+                hls.destroy();
             }
-
         });
-
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-
-        video.src = source;
-
-        video.addEventListener("loadedmetadata", function () {
-            hideMessage();
-        });
-
-    } else {
-
-        showMessage(
-            "Tarayıcınız HLS oynatmayı desteklemiyor."
-        );
-    }
-}
-
-function playVideo(source) {
-
-    const lower = source.toLowerCase();
-
-    if (
-        lower.includes(".m3u8") ||
-        lower.includes("application/vnd.apple.mpegurl")
-    ) {
-
-        playHLS(source);
 
         return;
     }
 
-    video.src = source;
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
 
-    video.addEventListener("loadedmetadata", function () {
-        hideMessage();
-    });
+        video.src = url;
 
-    video.addEventListener("error", function () {
-        showMessage(
-            "Video kaynağı yüklenemedi."
+        video.addEventListener(
+            "loadedmetadata",
+            hideStatus,
+            { once: true }
         );
-    });
+
+        return;
+    }
+
+    showStatus("Bu tarayıcı HLS oynatmayı desteklemiyor.");
 }
 
-if (!url) {
+function playDirect(url) {
 
-    showMessage(
-        "URL belirtilmedi."
+    video.src = url;
+
+    video.addEventListener(
+        "loadedmetadata",
+        hideStatus,
+        { once: true }
+    );
+
+    video.addEventListener(
+        "error",
+        function () {
+            showStatus(
+                "Video yüklenemedi. URL'nin doğrudan MP4/WebM/OGG dosyası olduğundan ve CORS erişiminin açık olduğundan emin olun."
+            );
+        },
+        { once: true }
+    );
+}
+
+if (!source) {
+
+    showStatus(
+        "URL belirtilmedi.<br><br>Örnek:<br>?url=https://site.com/video.mp4"
     );
 
 } else {
 
     try {
 
-        new URL(url);
+        const parsed = new URL(source);
 
-        playVideo(url);
+        if (
+            parsed.protocol !== "http:" &&
+            parsed.protocol !== "https:"
+        ) {
+            throw new Error("Invalid protocol");
+        }
 
-    } catch (e) {
+        if (isHLS(source)) {
+            playHLS(source);
+        } else {
+            playDirect(source);
+        }
 
-        showMessage(
-            "Geçersiz video URL'si."
-        );
+    } catch (error) {
+
+        console.error(error);
+
+        showStatus("Geçersiz video URL'si.");
     }
 }
 
